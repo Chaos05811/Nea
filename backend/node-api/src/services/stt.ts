@@ -53,8 +53,10 @@ export async function transcribe(audioBuffer: Buffer, filename: string): Promise
     model: "latest_short",
   };
   // Only add Hindi as an alternate when explicitly configured for bilingual.
-  if ((process.env.GOOGLE_STT_ALTERNATES || "").trim()) {
-    config.alternativeLanguageCodes = process.env.GOOGLE_STT_ALTERNATES.split(",")
+  const alternates = process.env.GOOGLE_STT_ALTERNATES || "";
+  if (alternates.trim()) {
+    config.alternativeLanguageCodes = alternates
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
   }
