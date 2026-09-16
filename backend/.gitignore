@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+.expo/
+dist/
+build/
+*.log
+.DS_Store
+serviceAccountKey.json
+firebase-service-account*.json
+*.task
