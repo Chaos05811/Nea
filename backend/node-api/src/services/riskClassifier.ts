@@ -1,4 +1,5 @@
 import aiClient from "../lib/aiClient";
+import { logger } from "../lib/logger";
 
 // The ML risk classifier (trained RandomForest/XGBoost, see ai-service/app/services/ml_risk.py)
 // is the one piece staying in Python — no practical Node equivalent to load a scikit-learn
@@ -14,9 +15,16 @@ export interface MlRiskResult {
 export async function classifyRisk(text: string): Promise<MlRiskResult> {
   try {
     const response = await aiClient.post<MlRiskResult>("/risk/classify", { text });
+    logger.debug("ML risk classify ok", {
+      level: response.data.level,
+      confidence: response.data.confidence,
+      available: response.data.available,
+    });
     return response.data;
   } catch (err) {
-    console.error("risk-classifier /risk/classify call failed:", (err as Error).message);
+    logger.error("risk-classifier /risk/classify call failed", {
+      message: (err as Error).message,
+    });
     return { level: "none", confidence: 0, available: false };
   }
 }

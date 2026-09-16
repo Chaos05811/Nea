@@ -1,10 +1,8 @@
 import express, { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { OAuth2Client } from "google-auth-library";
 import prisma from "../lib/prisma";
-import { requireAuth } from "../middleware/auth";
 import { firebaseAuth } from "../lib/firebase";
 
 const router = express.Router();
@@ -25,12 +23,6 @@ const loginSchema = z.object({
 const googleAuthSchema = z.object({
   idToken: z.string().min(1),
 });
-
-function signToken(user: { id: string; email: string }): string {
-  return jwt.sign({ sub: user.id, email: user.email }, process.env.JWT_SECRET as string, {
-    expiresIn: (process.env.JWT_EXPIRES_IN || "7d") as jwt.SignOptions["expiresIn"],
-  });
-}
 
 function publicUser<T extends { passwordHash?: string | null }>(user: T) {
   const { passwordHash, ...safe } = user;
@@ -54,8 +46,7 @@ router.post("/register", async (req: Request, res: Response) => {
     data: { email, passwordHash, displayName, ageGroup, language: language || "en" },
   });
 
-  const token = signToken(user);
-  res.status(201).json({ token, user: publicUser(user) });
+  res.status(201).json({ user: publicUser(user) });
 });
 
 router.post("/login", async (req: Request, res: Response) => {
@@ -67,8 +58,7 @@ router.post("/login", async (req: Request, res: Response) => {
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.passwordHash) {
-    // Also covers Google-only accounts trying to log in with a password — same generic error
-    // on purpose, so we don't leak which emails exist or how they signed up.
+    // Same generic error as a wrong password — don't leak which emails exist or how they signed up.
     return res.status(401).json({ error: "Invalid email or password" });
   }
 
@@ -77,13 +67,9 @@ router.post("/login", async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Invalid email or password" });
   }
 
-  const token = signToken(user);
-  res.json({ token, user: publicUser(user) });
+  res.json({ user: publicUser(user) });
 });
 
-// Google Sign-In: the frontend (expo-auth-session / @react-native-google-signin) gets a Google
-// ID token and hands it here. We verify it server-side (never trust a client-decoded token) and
-// issue our own JWT — the frontend only ever needs to deal with one token type after this.
 const googleClient = new OAuth2Client(process.env.GOOGLE_OAUTH_CLIENT_ID);
 
 router.post("/oauth/google", async (req: Request, res: Response) => {
@@ -102,7 +88,7 @@ router.post("/oauth/google", async (req: Request, res: Response) => {
       audience: process.env.GOOGLE_OAUTH_CLIENT_ID,
     });
     payload = ticket.getPayload();
-  } catch (err) {
+  } catch {
     return res.status(401).json({ error: "Invalid Google token" });
   }
   if (!payload?.sub || !payload.email) {
@@ -111,8 +97,6 @@ router.post("/oauth/google", async (req: Request, res: Response) => {
 
   let user = await prisma.user.findUnique({ where: { googleId: payload.sub } });
   if (!user) {
-    // If someone already registered with this email via password, link the Google account
-    // to it instead of creating a duplicate user.
     user = await prisma.user.findUnique({ where: { email: payload.email } });
     if (user) {
       user = await prisma.user.update({ where: { id: user.id }, data: { googleId: payload.sub } });
@@ -127,15 +111,9 @@ router.post("/oauth/google", async (req: Request, res: Response) => {
     }
   }
 
-  const token = signToken(user);
-  res.json({ token, user: publicUser(user) });
+  res.json({ user: publicUser(user) });
 });
 
-// Firebase Authentication: the frontend signs up/in via the Firebase JS SDK (email+password),
-// gets a Firebase ID token, and hands it here along with the profile details we need for our own
-// User row. We verify the ID token server-side with firebase-admin (never trust a client-decoded
-// token), then upsert a User keyed by firebaseUid and issue our own JWT — same pattern as Google
-// OAuth above, so the rest of the API only ever deals with one token type.
 const firebaseAuthSchema = z.object({
   idToken: z.string().min(1),
   displayName: z.string().min(1).max(100).optional(),
@@ -154,6 +132,10 @@ router.post("/firebase", async (req: Request, res: Response) => {
   try {
     decoded = await firebaseAuth.verifyIdToken(idToken);
   } catch (err) {
+    const message = (err as Error).message || "";
+    if (message.includes("serviceAccountKey.json") || message.includes("Firebase is not configured")) {
+      return res.status(501).json({ error: message });
+    }
     return res.status(401).json({ error: "Invalid Firebase token" });
   }
   if (!decoded.uid || !decoded.email) {
@@ -162,7 +144,6 @@ router.post("/firebase", async (req: Request, res: Response) => {
 
   let user = await prisma.user.findUnique({ where: { firebaseUid: decoded.uid } });
   if (!user) {
-    // Link to an existing password/Google account with the same email if one exists.
     user = await prisma.user.findUnique({ where: { email: decoded.email } });
     if (user) {
       user = await prisma.user.update({
@@ -187,12 +168,16 @@ router.post("/firebase", async (req: Request, res: Response) => {
     }
   }
 
-  const token = signToken(user);
-  res.json({ token, user: publicUser(user) });
+  res.json({ user: publicUser(user) });
 });
 
-router.get("/me", requireAuth, async (req: Request, res: Response) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
+// Plain lookup by userId — no bearer token / JWT.
+router.get("/me", async (req: Request, res: Response) => {
+  const userId = typeof req.query.userId === "string" ? req.query.userId : null;
+  if (!userId) {
+    return res.status(400).json({ error: "userId query param is required" });
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return res.status(404).json({ error: "User not found" });
   res.json({ user: publicUser(user) });
 });

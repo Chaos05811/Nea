@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { logger } from "./logger";
 
 /**
  * Optional voice-recording archival. Entirely feature-flagged: if AWS_S3_BUCKET isn't set
@@ -38,10 +39,14 @@ export async function uploadAudio(
         ServerSideEncryption: "AES256",
       })
     );
+    logger.info("S3 audio archived", { key });
     return `s3://${process.env.AWS_S3_BUCKET}/${key}`;
   } catch (err) {
     // Archival is best-effort — never block the STT response on a storage hiccup.
-    console.error("S3 audio upload failed (non-fatal):", (err as Error).message);
+    logger.error("S3 audio upload failed (non-fatal)", {
+      message: (err as Error).message,
+      key,
+    });
     return null;
   }
 }

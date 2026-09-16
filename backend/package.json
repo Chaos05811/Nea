@@ -2,14 +2,14 @@
   "name": "nea-backend",
   "version": "0.2.0",
   "private": true,
-  "description": "Nea (SIH 2026, PSID 198, team Fremen) — backend workspace. node-api (Node.js/Express+Prisma) owns everything: auth, database, chat/Groq, TTS/STT, and memory consolidation. ai-service (Python) is now ONLY the ML risk classifier — see backend/CLAUDE.md. `npm start` at this level runs both together.",
+  "description": "Nea (SIH 2026, PSID 198, team Fremen) — backend workspace. Single env file: backend/.env. node-api owns auth/DB/chat/voice/memory; ai-service is the ML risk classifier only. `npm start` runs both.",
   "scripts": {
     "install:node": "npm install --prefix node-api",
-    "install:python": "pip install -r ai-service/requirements.txt --break-system-packages",
+    "install:python": "python3 -m pip install -r ai-service/requirements.txt --break-system-packages",
     "install:all": "npm run install:node && npm run install:python",
     "migrate": "npm run prisma:migrate --prefix node-api",
     "dev:node": "npm run dev --prefix node-api",
-    "dev:risk": "cd ai-service && python -m uvicorn app.main:app --reload --port 8000",
+    "dev:risk": "bash scripts/dev-risk.sh",
     "start": "concurrently -n node,risk -c blue,green \"npm run dev:node\" \"npm run dev:risk\""
   },
   "devDependencies": {

@@ -13,3 +13,4 @@ build/
 serviceAccountKey.json
 firebase-service-account*.json
 *.task
+.env.bak*

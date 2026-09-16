@@ -31,7 +31,6 @@ backend/
 │       ├── server.ts        # also hosts the node-cron daily consolidation job
 │       ├── routes/          # auth.ts, sessions.ts, chat.ts, voice.ts, memory.ts
 │       ├── services/        # llm.ts, memory.ts, risk.ts, riskClassifier.ts, stt.ts, tts.ts, capsule.ts
-│       ├── middleware/auth.ts
 │       └── lib/              # prisma.ts, groq.ts, aiClient.ts (→ risk classifier only now), firebase.ts, s3.ts
 └── ai-service/               # FastAPI (Python) — ONLY the ML risk classifier now, nothing else
     ├── requirements.txt      # trimmed: fastapi, scikit-learn, xgboost, joblib — no DB, no Groq, no edge-tts
@@ -152,9 +151,11 @@ can hold sensitive personal facts, currently plaintext in the DB).
   commands. If you need to run a migration, expect to possibly retry, or use
   a direct connection for that one operation if IPv6 is reachable from
   wherever you're running it.
-- **OAuth**: Google Sign-In (`POST /api/auth/oauth/google`) and Firebase
-  Authentication (`POST /api/auth/firebase`) both exist alongside
-  email/password + JWT — see the Firebase section below.
+- **Auth**: No JWT and no auth middleware. Register/login/Google/Firebase
+  return `{user}` only; subsequent API calls pass `userId` in body/query.
+  Google Sign-In (`POST /api/auth/oauth/google`) and Firebase
+  (`POST /api/auth/firebase`) still verify their provider ID tokens at
+  upsert time — see the Firebase section below.
 - **ML risk classifier**: unchanged from before — RandomForest/XGBoost on a
   ~180-example seed dataset, demo-quality, advisory-only third safety
   signal. Still in Python, by deliberate choice (see "Why the ML classifier
@@ -186,31 +187,32 @@ the ML model's accuracy (which is weak — see the classifier's own docstring).
 
 ## Environment variables
 
-`node-api/.env` now holds everything: `DATABASE_URL` (pooler string — see
-above), `JWT_SECRET`, `GOOGLE_OAUTH_CLIENT_ID`, `GROQ_API_KEY`/
-`GROQ_CHAT_MODEL`/`GROQ_STT_MODEL` (moved here from ai-service),
-`TTS_DEFAULT_VOICE`, `AWS_S3_*` (optional), `AI_SERVICE_URL` +
-`INTERNAL_API_KEY` (for the risk-classifier call).
+**Single file: `backend/.env`** (copy from `backend/.env.example`). Both
+services read it — do not keep separate secrets in `node-api/.env` /
+`ai-service/.env` (those may be symlinks to `../.env` for Prisma/tools).
 
-`ai-service/.env` is now tiny: just `INTERNAL_API_KEY` (must match node-api's)
-and `PORT`. No `DATABASE_URL`, no `GROQ_API_KEY` — it doesn't touch either.
+Holds: `DATABASE_URL` (pooler string — see above), `GOOGLE_OAUTH_CLIENT_ID`,
+`GROQ_API_KEY` / `GROQ_CHAT_MODEL` / `GROQ_STT_MODEL`, `TTS_DEFAULT_VOICE`,
+`AWS_S3_*` (optional), `AI_SERVICE_URL` + `INTERNAL_API_KEY`,
+`NODE_API_PORT` (default 4000), `RISK_SERVICE_PORT` (default 8000),
+`NODE_ENV`, `CORS_ORIGIN`. No `JWT_SECRET` — bearer/JWT auth was removed.
 
-`node-api/serviceAccountKey.json` (Firebase Admin service account, gitignored)
-is required for `POST /api/auth/firebase` to work — see Firebase section.
+`node-api/serviceAccountKey.json` (Firebase Admin, gitignored) is required
+for `POST /api/auth/firebase`.
 
-**Do not commit `.env` files or `serviceAccountKey.json`, or paste real
-credentials into chat/code.**
+**Do not commit `.env` or `serviceAccountKey.json`, or paste real credentials
+into chat/code.**
 
 ## Firebase Authentication (see node-api/src/lib/firebase.ts)
 
-`node-api` verifies Firebase ID tokens server-side via `firebase-admin`,
-keyed by the service account at `node-api/serviceAccountKey.json`
-(gitignored). The frontend's Firebase **client** config
-(`frontend/src/api/firebase.js`) uses a public web API key — fine to be
-visible client-side, Firebase's security model doesn't treat it as a secret;
-the real access control is the server-side ID-token verification.
-`User.firebaseUid` coexists with `googleId`/`passwordHash` — same
-account-linking pattern for all three (same email → same User row).
+`POST /api/auth/firebase` verifies Firebase ID tokens via `firebase-admin`
+(service account at `node-api/serviceAccountKey.json`, gitignored) only to
+upsert the User row, then returns `{user}` — no session JWT is issued.
+Subsequent API calls identify the user with `userId` in body/query (no
+bearer middleware). The frontend's Firebase **client** config uses a public
+web API key — fine client-side. `User.firebaseUid` coexists with
+`googleId`/`passwordHash` — same account-linking pattern for all three
+(same email → same User row).
 
 ## Daily check-ins (see node-api/src/routes/memory.ts)
 
@@ -222,14 +224,11 @@ weekly pattern with real persisted data, not local component state.
 
 - **Verified live, end-to-end, against the real running stack, post-Node-
   migration** (see `node-api/e2e_test.mjs` — rerun it any time as a
-  regression check): real Firebase sign-up → `POST /api/auth/firebase` token
-  exchange → JWT → session create → real Groq chat reply (now fully
-  in-process in Node) → TTS via `msedge-tts` (real audio bytes) → STT via
-  Groq SDK (fed the TTS output back in, got a matching transcript) → ML risk
-  classifier service reachable → check-in persistence → crisis-phrase
-  message correctly triggers the safety bridge reply with Tele-MANAS/iCall
-  resources → manual consolidation endpoint runs without error. All 12
-  checks passed.
+  regression check): real Firebase sign-up → `POST /api/auth/firebase`
+  user upsert (returns `{user}`, no JWT) → session/chat/etc with `userId`
+  in body → real Groq chat reply → TTS via `msedge-tts` → STT via Groq SDK
+  → ML risk classifier reachable → check-in → crisis-phrase safety bridge
+  → manual consolidation. Re-run `node-api/e2e_test.mjs` after auth changes.
 - `tsc --noEmit` is clean in `node-api/`.
 - Frontend UI was verified end-to-end (sign up/in/out, real chat reply
   rendered, check-in updates dashboard) **before** this migration, against

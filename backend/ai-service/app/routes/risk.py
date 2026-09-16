@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+import logging
 
 from app.core.security import require_internal_key
 from app.services import ml_risk
+
+logger = logging.getLogger("nea.risk-service")
 
 router = APIRouter(prefix="/risk", tags=["risk"], dependencies=[Depends(require_internal_key)])
 
@@ -26,4 +29,11 @@ def classify(payload: ClassifyRequest):
     (Node.js). This stays in Python only because the model is a scikit-learn/XGBoost
     joblib bundle with no practical Node equivalent to load it without retraining.
     """
-    return ml_risk.classify(payload.text)
+    result = ml_risk.classify(payload.text)
+    logger.info(
+        "classify ok  level=%s confidence=%.3f available=%s",
+        result.get("level"),
+        float(result.get("confidence") or 0),
+        result.get("available"),
+    )
+    return result
