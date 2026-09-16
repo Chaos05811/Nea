@@ -13,6 +13,7 @@ import {
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import ChatScreen from './src/screens/ChatScreen';
+import ISLScreen from './src/screens/ISLScreen';
 import InsightsScreen from './src/screens/InsightsScreen';
 import PlanScreen from './src/screens/PlanScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -94,6 +95,7 @@ function RootNavigator() {
           <>
             <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen name="Chat" component={ChatScreen} />
+            <Stack.Screen name="ISL" component={ISLScreen} options={{ animation: 'slide_from_right' }} />
           </>
         ) : (
           <Stack.Screen name="Welcome" component={WelcomeScreen} />

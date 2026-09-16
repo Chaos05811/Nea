@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Nea Text → ISL Avatar</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/shoebham/text_to_isl@main/static/css/cwasa.css" />
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/shoebham/text_to_isl@main/static/js/allcsa.min.js"></script>
+  <script>
+    var initCfg = {
+      avsbsl: ["luna", "siggi", "anna", "marc", "francoise"],
+      avSettings: { avList: "avsbsl", initAv: "marc" }
+    };
+    var tuavatarLoaded = false;
+    var playerAvailableToPlay = true;
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #111827; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    .wrap { display: flex; flex-direction: column; height: 100%; padding: 8px; gap: 6px; }
+    .player {
+      flex: 1; min-height: 0; background: #1f2937; border-radius: 16px; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .anim, table { width: 100%; height: 100%; }
+    .CWASAAvatar { width: 100% !important; height: 100% !important; min-height: 280px; }
+    .controls { display: none; }
+    #meta { padding: 4px 2px; }
+    #current { font-size: 15px; font-weight: 700; color: #7dd3fc; min-height: 20px; }
+    #gloss { font-size: 12px; color: #cbd5e1; margin-top: 4px; max-height: 48px; overflow: auto; }
+    #status { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .err { color: #fca5a5; }
+  </style>
+</head>
+<body onload="boot()">
+  <div class="wrap">
+    <div class="player card">
+      <div class="anim">
+        <table align="center" style="width:100%;height:100%;">
+          <tr align="center">
+            <td width="100%" height="100%">
+              <div class="CWASAAvatar av0" align="center"></div>
+            </td>
+          </tr>
+          <tr class="controls">
+            <td align="center">
+              <span class="CWASAAvMenu av0"></span>
+              <input type="button" value="Sign" class="bttnPlaySiGMLURL av0" />
+              <input type="button" value="Stop" class="bttnStop av0" />
+              <span class="CWASASpeed av0"></span>
+              <input type="text" id="URLText" class="txtSiGMLURL av0" value="" style="width:1px;opacity:0;position:absolute;" />
+              <input class="txtSF av0" value="0/0" type="text" style="display:none" />
+              <input class="txtGloss av0" value="[none]" type="text" style="display:none" />
+              <input type="text" class="statusExtra av0" style="display:none" />
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <div id="meta">
+      <div id="current">Loading avatar…</div>
+      <div id="gloss"></div>
+      <div id="status"></div>
+    </div>
+  </div>
+
+  <script>
+    var SIGML_BASE = 'https://cdn.jsdelivr.net/gh/shoebham/text_to_isl@main/static/SignFiles';
+    var playing = false;
+    var ready = false;
+
+    function post(msg) {
+      try { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(msg)); } catch (e) {}
+    }
+    function setStatus(t, err) {
+      var el = document.getElementById('status');
+      el.textContent = t || '';
+      el.className = err ? 'err' : '';
+    }
+    function setCurrent(t) { document.getElementById('current').textContent = t || ''; }
+    function setGloss(t) { document.getElementById('gloss').textContent = t || ''; }
+
+    function boot() {
+      try {
+        if (typeof CWASA === 'undefined') throw new Error('CWASA failed to load');
+        CWASA.init(initCfg);
+        ready = true;
+        setCurrent('Avatar ready');
+        setStatus('Waiting for Nea reply…');
+        post({ type: 'ready', avatar: true });
+      } catch (err) {
+        setCurrent('Avatar unavailable');
+        setStatus(String(err.message || err), true);
+        post({ type: 'ready', avatar: false, error: String(err.message || err) });
+      }
+    }
+
+    function playSiGML(token) {
+      return new Promise(function (resolve) {
+        var url = SIGML_BASE + '/' + encodeURIComponent(token) + '.sigml';
+        var urlEl = document.getElementById('URLText');
+        if (urlEl) urlEl.value = url;
+        setCurrent('Signing: ' + token);
+        try {
+          if (ready && window.CWASA && CWASA.playSiGMLURL) {
+            CWASA.playSiGMLURL(url);
+          }
+        } catch (e) {
+          setStatus(String(e.message || e), true);
+        }
+        // Pace like shoebham/text_to_isl script.js (~1s per gloss)
+        var wait = token.length === 1 ? 700 : 1400;
+        setTimeout(resolve, wait);
+      });
+    }
+
+    async function playTokens(list) {
+      if (!list || !list.length) {
+        setGloss('(no matching signs)');
+        setStatus('No ISL tokens', true);
+        post({ type: 'done' });
+        return;
+      }
+      if (playing) return;
+      playing = true;
+      setGloss(list.join(' · '));
+      setStatus('Playing ' + list.length + ' sign(s)…');
+      for (var i = 0; i < list.length; i++) {
+        post({ type: 'gloss', index: i, token: list[i], total: list.length });
+        await playSiGML(list[i]);
+      }
+      setCurrent('Done');
+      setStatus('Finished ISL sequence');
+      playing = false;
+      post({ type: 'done' });
+    }
+
+    window.__neaPlayIsl = function (list) {
+      playTokens(Array.isArray(list) ? list : []);
+    };
+
+    document.addEventListener('message', function (e) {
+      try {
+        var data = JSON.parse(e.data);
+        if (data.type === 'play') playTokens(data.tokens || []);
+      } catch (err) {}
+    });
+    window.addEventListener('message', function (e) {
+      try {
+        var data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (data && data.type === 'play') playTokens(data.tokens || []);
+      } catch (err) {}
+    });
+  </script>
+</body>
+</html>

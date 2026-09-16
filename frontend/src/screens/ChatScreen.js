@@ -1,10 +1,9 @@
-import React, { useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import Logo from '../components/Logo';
-import ISLInput from '../components/ISLInput';
 import ChatBubble from '../components/ChatBubble';
 import Composer from '../components/Composer';
 import HistoryPanel from '../components/HistoryPanel';
@@ -15,9 +14,6 @@ import { transcribeAudio } from '../api/voice';
 
 const timeLabel = () => new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-// Conversation starters shown from the Dashboard's "Ask Nea" shortcuts — these only
-// prefill the composer, they never inject a fake assistant reply. Every reply the
-// user sees still comes from a real /api/chat call to Groq.
 const STARTER_PROMPTS = {
   talk: "I want to talk about what's on my mind today.",
   calm: "I'm feeling a bit anxious and could use help calming down.",
@@ -32,7 +28,6 @@ export default function ChatScreen({ route, navigation }) {
   const [draft, setDraft] = useState(supportMode ? STARTER_PROMPTS[supportMode] || '' : '');
   const [pending, setPending] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -42,6 +37,32 @@ export default function ChatScreen({ route, navigation }) {
   const nextId = useRef(1);
   const locked = useRef(false);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // Merge ISL session turns when returning from ISLScreen
+  useEffect(() => {
+    const history = route?.params?.islHistory;
+    if (!history?.length) return;
+    if (route?.params?.sessionId) sessionId.current = route.params.sessionId;
+    const appended = [];
+    history.forEach((turn) => {
+      appended.push({
+        id: nextId.current++,
+        role: 'user',
+        text: turn.userText,
+        time: turn.time || timeLabel(),
+      });
+      appended.push({
+        id: nextId.current++,
+        role: 'assistant',
+        text: turn.replyText,
+        time: turn.time || timeLabel(),
+        error: !!turn.error,
+      });
+    });
+    setMessages((prev) => [...prev, ...appended]);
+    navigation.setParams({ islHistory: undefined, sessionId: undefined });
+    setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 100);
+  }, [route?.params?.islHistory]);
 
   async function ensureSession() {
     if (!sessionId.current) {
@@ -82,9 +103,14 @@ export default function ChatScreen({ route, navigation }) {
     setDraft('');
   }
 
-  function sendFromCamera({ text }) {
-    setShowCamera(false);
-    sendMessage(text, 'ISL');
+  async function openIsl() {
+    try {
+      const sid = await ensureSession();
+      navigation.navigate('ISL', { sessionId: sid });
+    } catch (err) {
+      // Still open ISL — it can create its own session
+      navigation.navigate('ISL', {});
+    }
   }
 
   async function handleMicPress() {
@@ -167,8 +193,15 @@ export default function ChatScreen({ route, navigation }) {
         <Pressable testID="history-button" accessibilityRole="button" accessibilityLabel="Previous chats" style={styles.iconButton} onPress={() => setShowHistory(true)}>
           <Ionicons name="time-outline" size={22} color={colors.navy} />
         </Pressable>
-        <Pressable testID="camera-button" accessibilityRole="button" accessibilityLabel="Open ISL / Video camera" style={styles.iconButton} onPress={() => setShowCamera(true)}>
-          <Ionicons name="videocam-outline" size={22} color={colors.navy} />
+        <Pressable
+          testID="camera-button"
+          accessibilityRole="button"
+          accessibilityLabel="Open ISL screen"
+          style={styles.islButton}
+          onPress={openIsl}
+        >
+          <Ionicons name="videocam" size={18} color={colors.navy} />
+          <Text style={styles.islButtonText}>ISL</Text>
         </Pressable>
       </View>
 
@@ -186,7 +219,7 @@ export default function ChatScreen({ route, navigation }) {
             <View style={styles.emptyState}>
               <Logo size={56} />
               <Text style={styles.emptyTitle}>Ask Nea anything</Text>
-              <Text style={styles.emptyBody}>Write below, tap the mic, or use ISL / Video.</Text>
+              <Text style={styles.emptyBody}>Write below, tap the mic, or open ISL.</Text>
             </View>
           )}
           <View accessibilityLiveRegion="polite" testID="conversation">
@@ -209,20 +242,6 @@ export default function ChatScreen({ route, navigation }) {
           transcribing={transcribing}
         />
       </KeyboardAvoidingView>
-
-      <Modal visible={showCamera} animationType="slide" onRequestClose={() => setShowCamera(false)}>
-        <SafeAreaView style={styles.cameraScreen}>
-          <View style={styles.cameraHeader}>
-            <Text style={styles.cameraTitle}>ISL / Video</Text>
-            <Pressable testID="close-camera" accessibilityRole="button" accessibilityLabel="Close camera" onPress={() => setShowCamera(false)} style={styles.iconButton}>
-              <Ionicons name="close-outline" size={26} color={colors.navy} />
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.cameraContent} keyboardShouldPersistTaps="handled">
-            <ISLInput onSend={sendFromCamera} />
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
 
       <HistoryPanel
         visible={showHistory}
@@ -248,6 +267,19 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, lineHeight: 25, color: colors.navy, fontWeight: '600', letterSpacing: -0.8 },
   tagline: { fontSize: 11, lineHeight: 15, color: colors.secondary, marginTop: 0 },
   iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  islButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 18,
+    backgroundColor: colors.translation,
+    borderWidth: 1,
+    borderColor: '#CDDCF9',
+  },
+  islButtonText: { fontSize: 13, fontWeight: '700', color: colors.navy, letterSpacing: 0.3 },
   body: { flex: 1 },
   scroll: { flex: 1 },
   content: { flexGrow: 1, paddingHorizontal: 14, paddingBottom: 22, justifyContent: 'flex-end' },
@@ -256,8 +288,4 @@ const styles = StyleSheet.create({
   emptyBody: { fontSize: 14, color: colors.muted, textAlign: 'center' },
   replying: { color: colors.muted, fontSize: 14, lineHeight: 21, paddingLeft: 51, marginTop: 12, marginBottom: 5 },
   permText: { color: '#B3261E', fontSize: 12, textAlign: 'center', paddingVertical: 6, backgroundColor: '#FDECEC' },
-  cameraScreen: { flex: 1, backgroundColor: colors.background },
-  cameraHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
-  cameraTitle: { fontSize: 20, fontWeight: '600', color: colors.navy },
-  cameraContent: { padding: 16 },
 });
