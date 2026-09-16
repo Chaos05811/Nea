@@ -182,4 +182,35 @@ router.get("/me", async (req: Request, res: Response) => {
   res.json({ user: publicUser(user) });
 });
 
+const updateProfileSchema = z.object({
+  userId: z.string().min(1),
+  displayName: z.string().min(1).max(100).optional(),
+  ageGroup: z.enum(["child", "teen", "adult", "senior"]).optional(),
+  language: z.string().min(2).max(10).optional(),
+});
+
+// Update display name, age group, and/or language. Email stays managed by auth provider.
+router.patch("/me", async (req: Request, res: Response) => {
+  const parsed = updateProfileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+  }
+  const { userId, displayName, ageGroup, language } = parsed.data;
+
+  const existing = await prisma.user.findUnique({ where: { id: userId } });
+  if (!existing) return res.status(404).json({ error: "User not found" });
+
+  const data: { displayName?: string; ageGroup?: string; language?: string } = {};
+  if (displayName !== undefined) data.displayName = displayName.trim();
+  if (ageGroup !== undefined) data.ageGroup = ageGroup;
+  if (language !== undefined) data.language = language;
+
+  if (Object.keys(data).length === 0) {
+    return res.status(400).json({ error: "No profile fields to update" });
+  }
+
+  const user = await prisma.user.update({ where: { id: userId }, data });
+  res.json({ user: publicUser(user) });
+});
+
 export default router;

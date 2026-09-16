@@ -23,7 +23,7 @@ const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "20mb" }));
 app.use(requestLogger);
 
 // Generous but real rate limit — this app talks to people in crisis; we never want

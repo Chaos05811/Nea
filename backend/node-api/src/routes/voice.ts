@@ -10,27 +10,71 @@ const router = express.Router();
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-router.post("/stt", upload.single("audio"), async (req: Request, res: Response) => {
-  const file = req.file;
-  if (!file) return res.status(400).json({ error: "No audio file provided (field name: 'audio')" });
+const sttJsonSchema = z.object({
+  audioBase64: z.string().min(1),
+  filename: z.string().optional(),
+  mimeType: z.string().optional(),
+  userId: z.string().optional(),
+  sessionId: z.string().optional(),
+});
 
-  // userId is optional here — only used for optional S3 archival, not for auth.
-  const userId = typeof req.body.userId === "string" && req.body.userId ? req.body.userId : "anonymous";
-  const sessionId = (req.body.sessionId as string) || "unassigned";
+async function runStt(
+  res: Response,
+  opts: {
+    buffer: Buffer;
+    filename: string;
+    mimeType: string;
+    userId: string;
+    sessionId: string;
+  }
+) {
+  const { buffer, filename, mimeType, userId, sessionId } = opts;
+  const extension = (filename.split(".").pop() || "wav").toLowerCase();
 
-  const extension = (file.originalname?.split(".").pop() || "m4a").toLowerCase();
-  uploadAudio(userId, sessionId, file.buffer, file.mimetype || "audio/mp4", extension).catch((err) => {
+  uploadAudio(userId, sessionId, buffer, mimeType, extension).catch((err) => {
     logger.error("S3 audio archival failed", { userId, sessionId, message: (err as Error).message });
   });
 
   try {
-    const result = await transcribe(file.buffer, file.originalname || "recording.m4a");
-    logger.info("STT ok", { userId, sessionId, bytes: file.size, language: result.language });
+    const result = await transcribe(buffer, filename);
+    logger.info("STT ok", { userId, sessionId, bytes: buffer.length, language: result.language });
     res.json(result);
   } catch (err) {
     logger.error("Speech-to-text failed", { userId, sessionId, message: (err as Error).message });
-    res.status(502).json({ error: "Speech-to-text is unavailable right now" });
+    res.status(502).json({ error: (err as Error).message || "Speech-to-text is unavailable right now" });
   }
+}
+
+// Preferred by Expo Go: JSON + base64 (multipart often fails through the Metro proxy).
+router.post("/stt", upload.single("audio"), async (req: Request, res: Response) => {
+  if (req.file) {
+    const userId = typeof req.body.userId === "string" && req.body.userId ? req.body.userId : "anonymous";
+    const sessionId = (req.body.sessionId as string) || "unassigned";
+    return runStt(res, {
+      buffer: req.file.buffer,
+      filename: req.file.originalname || "recording.wav",
+      mimeType: req.file.mimetype || "audio/wav",
+      userId,
+      sessionId,
+    });
+  }
+
+  // JSON body path (Content-Type: application/json)
+  const parsed = sttJsonSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "No audio provided. Send multipart 'audio' or JSON { audioBase64, filename }" });
+  }
+
+  const filename = parsed.data.filename || "recording.wav";
+  const mimeType = parsed.data.mimeType || "audio/wav";
+  const userId = parsed.data.userId || "anonymous";
+  const sessionId = parsed.data.sessionId || "unassigned";
+  const buffer = Buffer.from(parsed.data.audioBase64, "base64");
+  if (!buffer.length) {
+    return res.status(400).json({ error: "audioBase64 decoded to empty buffer" });
+  }
+
+  return runStt(res, { buffer, filename, mimeType, userId, sessionId });
 });
 
 const ttsSchema = z.object({
@@ -51,7 +95,7 @@ router.post("/tts", async (req: Request, res: Response) => {
     res.send(audioBuffer);
   } catch (err) {
     logger.error("Text-to-speech failed", { message: (err as Error).message });
-    res.status(502).json({ error: "Text-to-speech is unavailable right now" });
+    res.status(502).json({ error: (err as Error).message || "Text-to-speech is unavailable right now" });
   }
 });
 
