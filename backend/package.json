@@ -5,7 +5,7 @@
   "description": "Nea (SIH 2026, PSID 198, team Fremen) — backend workspace. Single env file: backend/.env. node-api owns auth/DB/chat/voice/memory; ai-service is the ML risk classifier only. `npm start` runs both.",
   "scripts": {
     "install:node": "npm install --prefix node-api",
-    "install:python": "python3 -m pip install -r ai-service/requirements.txt --break-system-packages",
+    "install:python": "python -m pip install -r ai-service/requirements.txt || python3 -m pip install -r ai-service/requirements.txt --break-system-packages",
     "install:all": "npm run install:node && npm run install:python",
     "migrate": "npm run prisma:migrate --prefix node-api",
     "dev:node": "npm run dev --prefix node-api",

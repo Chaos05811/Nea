@@ -2,22 +2,22 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "web", "--", "--port", "19006"],
-      "port": 19006
-    },
-    {
       "name": "backend-node",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "backend/node-api", "run", "dev"],
       "port": 4000
     },
     {
-      "name": "backend-ai",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": ["/c", "backend\\ai-service\\run_dev.cmd"],
+      "name": "backend-risk",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "dev:risk"],
       "port": 8000
+    },
+    {
+      "name": "frontend-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "web", "--", "--port", "19006"],
+      "port": 19006
     }
   ]
 }
