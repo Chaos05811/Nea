@@ -1,8 +1,5 @@
-import path from "path";
-import dotenv from "dotenv";
-
-// Single env file at backend/.env (this file lives in backend/node-api/src/).
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+// Load backend/.env before any other local imports (see env.ts).
+import "./env";
 
 import express from "express";
 import cors from "cors";
