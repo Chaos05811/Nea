@@ -146,7 +146,7 @@ export default function ISLInput({ onSend, resetKey = 0 }) {
         <View style={styles.understood} testID="understood-panel">
           <View style={styles.sectionHeading}>
             <Text style={styles.sparkle} accessible={false}>✦</Text>
-            <Text style={styles.heading}>ISL → text (edit if needed)</Text>
+            <Text style={styles.heading}>Your signs as text (edit if needed)</Text>
           </View>
           <View style={styles.translation}>
             <TextInput

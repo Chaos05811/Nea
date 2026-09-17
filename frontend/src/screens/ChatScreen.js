@@ -7,6 +7,7 @@ import Logo from '../components/Logo';
 import ChatBubble from '../components/ChatBubble';
 import Composer from '../components/Composer';
 import HistoryPanel from '../components/HistoryPanel';
+import TextToISLPlayer from '../components/TextToISLPlayer';
 import { colors } from '../theme';
 import { createSession, sendChatMessage } from '../api/chat';
 import { fetchSessionMessages } from '../api/memory';
@@ -31,6 +32,7 @@ export default function ChatScreen({ route, navigation }) {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [islOverlayText, setIslOverlayText] = useState('');
 
   const scroll = useRef(null);
   const sessionId = useRef(null);
@@ -223,7 +225,13 @@ export default function ChatScreen({ route, navigation }) {
             </View>
           )}
           <View accessibilityLiveRegion="polite" testID="conversation">
-            {messages.map((message) => <ChatBubble key={message.id} message={message} />)}
+            {messages.map((message) => (
+              <ChatBubble
+                key={message.id}
+                message={message}
+                onPlayIsl={message.role === 'assistant' ? setIslOverlayText : undefined}
+              />
+            ))}
             {pending && <Text style={styles.replying} accessibilityLiveRegion="polite">Nea is replying…</Text>}
           </View>
         </ScrollView>
@@ -253,6 +261,29 @@ export default function ChatScreen({ route, navigation }) {
           navigation.goBack();
         }}
       />
+
+      {!!islOverlayText && (
+        <View style={styles.islOverlay}>
+          <View style={styles.islSheet}>
+            <View style={styles.islSheetHeader}>
+              <Text style={styles.islSheetTitle}>Reply in ISL</Text>
+              <Pressable
+                testID="close-isl-overlay"
+                accessibilityRole="button"
+                accessibilityLabel="Close ISL player"
+                onPress={() => setIslOverlayText('')}
+                style={styles.iconButton}
+              >
+                <Ionicons name="close" size={24} color={colors.navy} />
+              </Pressable>
+            </View>
+            <Text style={styles.islSheetText} numberOfLines={4}>{islOverlayText}</Text>
+            <View style={styles.islSheetPlayer}>
+              <TextToISLPlayer text={islOverlayText} />
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -288,4 +319,21 @@ const styles = StyleSheet.create({
   emptyBody: { fontSize: 14, color: colors.muted, textAlign: 'center' },
   replying: { color: colors.muted, fontSize: 14, lineHeight: 21, paddingLeft: 51, marginTop: 12, marginBottom: 5 },
   permText: { color: '#B3261E', fontSize: 12, textAlign: 'center', paddingVertical: 6, backgroundColor: '#FDECEC' },
+  islOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(18, 58, 140, 0.28)',
+    justifyContent: 'flex-end',
+    padding: 12,
+  },
+  islSheet: {
+    height: '72%',
+    backgroundColor: '#FCFDFF',
+    borderRadius: 20,
+    padding: 12,
+    gap: 8,
+  },
+  islSheetHeader: { flexDirection: 'row', alignItems: 'center' },
+  islSheetTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: colors.navy },
+  islSheetText: { fontSize: 14, lineHeight: 20, color: colors.navy, backgroundColor: colors.understood, padding: 10, borderRadius: 12 },
+  islSheetPlayer: { flex: 1, minHeight: 220, borderRadius: 16, overflow: 'hidden' },
 });

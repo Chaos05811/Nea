@@ -1,45 +1,59 @@
-// English → ISL gloss tokens (shoebham/text_to_isl style, client-side).
+// English → ISL gloss tokens, matching text_to_isl-main/main.py:
+// strip punctuation, drop auxiliary stop-words, use SignFiles vocab, else fingerspell.
+import { islVocabUrl } from './config';
+
+// Same list as main.py (not extra articles — those have their own .sigml files).
 const STOP_WORDS = new Set([
-  'am','are','is','was','were','be','being','been','have','has','had','does','did',
-  'could','should','would','can','shall','will','may','might','must','let','a','an',
-  'the','to','of','for','in','on','at','by','with','from','as','into','than','that',
-  'this','these','those','it','its','and','or','but','if','so','do','not',"n't",
+  'am', 'are', 'is', 'was', 'were', 'be', 'being', 'been', 'have', 'has', 'had',
+  'does', 'did', 'could', 'should', 'would', 'can', 'shall', 'will', 'may', 'might',
+  'must', 'let',
 ]);
 
-const SEED_WORDS = [
-  'hello','hi','how','you','your','name','my','me','i','we','they','good','bad','yes','no',
-  'please','thankyou','sorry','help','help-me','help-you','feel','sad','happy','angry',
-  'worry','fear','calm-down','need','want','talk','understand','donotunderstand','friend',
-  'family','mother','father','home','school','work','today','tomorrow','yesterday','time',
-  'day','night','morning','evening','eat','drink','water','food','sleep','go','come','see',
-  'love','like','important','problem','plan','think','know','learn','doctor','what','when',
-  'where','who','why','howareyou','ok','fine','thank','thanks',
-];
-
-let vocabSet = new Set(SEED_WORDS);
+let vocabMap = null; // lowercase token → SignFiles stem (hello, A, 1month, …)
 let vocabPromise = null;
-const WORDS_CDN = 'https://cdn.jsdelivr.net/gh/shoebham/text_to_isl@main/words.txt';
-export const SIGML_BASE = 'https://cdn.jsdelivr.net/gh/shoebham/text_to_isl@main/static/SignFiles';
+
+function addStem(map, stem) {
+  const trimmed = String(stem || '').trim();
+  if (!trimmed) return;
+  map.set(trimmed.toLowerCase(), trimmed);
+}
+
+async function loadVocab() {
+  const map = new Map();
+  try {
+    const res = await fetch(islVocabUrl());
+    if (res.ok) {
+      const text = await res.text();
+      text.split(/\r?\n/).forEach((line) => addStem(map, line));
+    }
+  } catch {
+    // keep whatever we have
+  }
+  if (map.size === 0) {
+    ['hello', 'hi', 'you', 'me', 'i', 'good', 'bad', 'yes', 'no', 'please', 'sorry',
+      'help', 'sad', 'happy', 'thankyou', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+      'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+    ].forEach((w) => addStem(map, w));
+  }
+  return map;
+}
 
 export async function ensureIslVocabulary() {
-  if (vocabPromise) return vocabPromise;
-  vocabPromise = (async () => {
-    try {
-      const res = await fetch(WORDS_CDN);
-      if (!res.ok) return vocabSet;
-      const text = await res.text();
-      const next = new Set(vocabSet);
-      text.split(/\r?\n/).forEach((line) => { const w = line.trim().toLowerCase(); if (w) next.add(w); });
-      vocabSet = next;
-    } catch { /* keep seed */ }
-    return vocabSet;
-  })();
+  if (!vocabPromise) {
+    vocabPromise = loadVocab().then((map) => {
+      vocabMap = map;
+      return map;
+    });
+  }
   return vocabPromise;
 }
 
 function tokenize(text) {
-  return String(text || '').toLowerCase().replace(/[^a-z0-9\s'-]/g, ' ').split(/\s+/)
-    .map((w) => w.replace(/^'+|'+$/g, '')).filter(Boolean);
+  return String(text || '')
+    .replace(/[^\w\s'-]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/^'+|'+$/g, ''))
+    .filter(Boolean);
 }
 
 function lemmaish(word) {
@@ -50,22 +64,36 @@ function lemmaish(word) {
   return word;
 }
 
+function lookup(word, vocab) {
+  const raw = word.toLowerCase();
+  if (vocab.has(raw)) return vocab.get(raw);
+  const compact = raw.replace(/[^a-z0-9]/g, '');
+  if (vocab.has(compact)) return vocab.get(compact);
+  const lem = lemmaish(raw);
+  if (vocab.has(lem)) return vocab.get(lem);
+  return null;
+}
+
 function expandToken(word, vocab) {
   const raw = word.toLowerCase();
   if (STOP_WORDS.has(raw)) return [];
-  if (raw === 'thanks' || raw === 'thank') return vocab.has('thankyou') ? ['thankyou'] : ['t','h','a','n','k'];
-  if (vocab.has(raw)) return [raw];
-  const lem = lemmaish(raw);
-  if (vocab.has(lem)) return [lem];
-  return raw.replace(/[^a-z0-9]/g, '').split('');
+  if (raw === 'thanks' || raw === 'thank' || raw === 'thankyou') {
+    if (vocab.has('thankyou')) return [vocab.get('thankyou')];
+  }
+  const hit = lookup(word, vocab);
+  if (hit) return [hit];
+  return raw.replace(/[^a-z0-9]/g, '').split('').map((ch) => {
+    if (/[a-z]/.test(ch)) return ch.toUpperCase();
+    return vocab.has(ch) ? vocab.get(ch) : ch;
+  });
 }
 
 export async function englishToIslTokens(text) {
   const vocab = await ensureIslVocabulary();
   const out = [];
   for (const word of tokenize(text)) {
-    for (const t of expandToken(word, vocab)) {
-      out.push(t.length === 1 ? t.toUpperCase() : t);
+    for (const token of expandToken(word, vocab)) {
+      if (token) out.push(token);
     }
   }
   return out;

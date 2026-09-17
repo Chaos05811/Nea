@@ -6,7 +6,7 @@ import Logo from './Logo';
 import { colors } from '../theme';
 import { synthesizeSpeechToFile } from '../api/voice';
 
-export default function ChatBubble({ message }) {
+export default function ChatBubble({ message, onPlayIsl }) {
   const user = message.role === 'user';
   const [speaking, setSpeaking] = useState(false);
 
@@ -31,21 +31,35 @@ export default function ChatBubble({ message }) {
         <Text style={[styles.text, message.error && styles.errorText]} selectable>{message.text}</Text>
         <View style={styles.meta}>
           {!user && !message.error && (
-            <Pressable
-              testID="speak-message"
-              accessibilityRole="button"
-              accessibilityLabel="Speak this message"
-              onPress={handleSpeak}
-              disabled={speaking}
-              style={({ pressed }) => [styles.speakButton, pressed && styles.speakPressed]}
-            >
-              {speaking ? (
-                <ActivityIndicator size="small" color={colors.blue} />
-              ) : (
-                <Ionicons name="volume-medium-outline" size={15} color={colors.blue} />
+            <View style={styles.actions}>
+              <Pressable
+                testID="speak-message"
+                accessibilityRole="button"
+                accessibilityLabel="Speak this message"
+                onPress={handleSpeak}
+                disabled={speaking}
+                style={({ pressed }) => [styles.speakButton, pressed && styles.speakPressed]}
+              >
+                {speaking ? (
+                  <ActivityIndicator size="small" color={colors.blue} />
+                ) : (
+                  <Ionicons name="volume-medium-outline" size={15} color={colors.blue} />
+                )}
+                <Text style={styles.speakText}>Speak</Text>
+              </Pressable>
+              {!!onPlayIsl && (
+                <Pressable
+                  testID="isl-message"
+                  accessibilityRole="button"
+                  accessibilityLabel="Play this message in ISL"
+                  onPress={() => onPlayIsl(message.text)}
+                  style={({ pressed }) => [styles.speakButton, pressed && styles.speakPressed]}
+                >
+                  <Ionicons name="hand-left-outline" size={15} color={colors.blue} />
+                  <Text style={styles.speakText}>ISL</Text>
+                </Pressable>
               )}
-              <Text style={styles.speakText}>Speak</Text>
-            </Pressable>
+            </View>
           )}
           <Text style={styles.time}>{message.time || '9:41 AM'}</Text>
           {user && <Ionicons name="checkmark-done-outline" size={17} color={colors.blue} />}
@@ -66,7 +80,8 @@ const styles = StyleSheet.create({
   text: { fontSize: 16, lineHeight: 23, color: colors.navy, letterSpacing: -0.3 },
   errorText: { color: '#B3261E' },
   meta: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 6 },
-  speakButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10, backgroundColor: 'rgba(79,127,245,0.12)', marginRight: 'auto' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 6, marginRight: 'auto' },
+  speakButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10, backgroundColor: 'rgba(79,127,245,0.12)' },
   speakPressed: { opacity: 0.6 },
   speakText: { fontSize: 12, fontWeight: '600', color: colors.blue },
   time: { fontSize: 12, lineHeight: 17, color: colors.secondary },

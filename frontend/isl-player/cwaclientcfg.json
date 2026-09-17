@@ -1,0 +1,11 @@
+{
+  "description": "Nea Text→ISL player — Marc avatar, same as text_to_isl-main",
+  "avSettings": [
+    {
+      "width": 384,
+      "height": 400,
+      "avList": "avsbsl",
+      "initAv": "marc"
+    }
+  ]
+}
